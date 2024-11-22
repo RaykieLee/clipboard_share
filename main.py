@@ -1,13 +1,10 @@
-import tkinter as tk
-from tkinter import messagebox, filedialog
+import flet as ft
 import pyperclip
 import os
 import time
 import threading
-import pystray
 from PIL import Image
 import sys
-import os.path
 
 class ClipboardMonitor:
     def __init__(self):
@@ -38,116 +35,183 @@ class ClipboardMonitor:
         except Exception as e:
             print(f"保存失败: {str(e)}")
 
-class App:
+class ClipboardApp:
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("剪切板内容保存工具")
         self.monitor = ClipboardMonitor()
+        self.page = None
+        self.file_picker = None
         
-        # 设置程序图标
-        self.icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
-        if os.path.exists(self.icon_path):
-            self.icon_image = Image.open(self.icon_path)
-            # 为 tkinter 窗口设置图标
-            icon_photo = tk.PhotoImage(file=self.icon_path)
-            self.root.iconphoto(True, icon_photo)
-        else:
-            self.icon_image = Image.new('RGB', (64, 64), 'black')  # 默认图标
+    def main(self, page: ft.Page):
+        self.page = page
+        self.page.title = "剪切板监控工具"
+        
+        # 更新窗口属性的设置方式
+        self.page.window.width = 600
+        self.page.window.height = 200
+        self.page.window.resizable = False
+        self.page.theme_mode = ft.ThemeMode.LIGHT
+        
+        # 设置图标
+        icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+        if os.path.exists(icon_path):
+            self.page.window.icon = icon_path
             
-        self.setup_gui()
-        self.setup_tray()
+        # 初始化 FilePicker
+        self.file_picker = ft.FilePicker(
+            on_result=self.on_directory_selected
+        )
+        self.page.overlay.append(self.file_picker)
         
-    def setup_gui(self):
-        self.root.geometry("600x80")
-        self.root.protocol('WM_DELETE_WINDOW', self.hide_window)
-        
-        frame = tk.Frame(self.root)
-        frame.pack(padx=5, pady=5)
-        
-        self.path_entry = tk.Entry(frame, width=50)
-        self.path_entry.pack(side=tk.LEFT, padx=5)
-        
-        select_button = tk.Button(frame, text="选择目录", command=self.select_directory)
-        select_button.pack(side=tk.LEFT, padx=2)
-        
-        save_button = tk.Button(frame, text="保存", command=self.save_clipboard)
-        save_button.pack(side=tk.LEFT, padx=2)
-        
-        self.monitor_button = tk.Button(frame, text="开始监控", command=self.toggle_monitoring)
-        self.monitor_button.pack(side=tk.LEFT, padx=2)
-        
-        self.status_label = tk.Label(self.root, text="状态: 已停止")
-        self.status_label.pack(pady=5)
-
-    def setup_tray(self):
-        menu = (
-            pystray.MenuItem('显示', self.show_window),
-            pystray.MenuItem('退出', self.quit_app)
+        # 创建界面元素
+        self.path_text = ft.TextField(
+            label="保存目录",
+            read_only=True,
+            width=400,
+            border_color=ft.colors.BLUE_400,
         )
         
-        # 使用自定义图标创建系统托盘图标
-        self.icon = pystray.Icon(
-            "clipboard_monitor",
-            self.icon_image,  # 使用加载的图标
-            "剪切板监控",
-            menu
+        self.status_text = ft.Text(
+            "状态: 已停止",
+            color=ft.colors.GREY_700,
+            size=14
         )
         
-    def run(self):
-        # 启动托盘图标
-        threading.Thread(target=self.icon.run, daemon=True).start()
-        self.root.mainloop()
-
-    def hide_window(self):
-        self.root.withdraw()  # 隐藏窗口
+        select_button = ft.ElevatedButton(
+            "选择目录",
+            icon=ft.icons.FOLDER_OPEN,
+            on_click=self.select_directory,
+            style=ft.ButtonStyle(
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.BLUE_400,
+            )
+        )
         
-    def show_window(self):
-        self.root.deiconify()  # 显示窗口
-        self.root.lift()  # 将窗口提到最前
+        self.monitor_button = ft.ElevatedButton(
+            "开始监控",
+            icon=ft.icons.PLAY_CIRCLE,
+            on_click=self.toggle_monitoring,
+            style=ft.ButtonStyle(
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.GREEN_400,
+            )
+        )
         
-    def quit_app(self):
-        self.monitor.stop_monitoring()
-        self.icon.stop()
-        self.root.destroy()
-        sys.exit()
-
-    def select_directory(self):
-        directory = filedialog.askdirectory()
-        if directory:
-            self.path_entry.delete(0, tk.END)
-            self.path_entry.insert(0, directory)
-            self.monitor.save_directory = directory
-
-    def toggle_monitoring(self):
+        save_button = ft.ElevatedButton(
+            "保存当前",
+            icon=ft.icons.SAVE,
+            on_click=self.save_clipboard,
+            style=ft.ButtonStyle(
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.BLUE_400,
+            )
+        )
+        
+        # 布局
+        content = ft.Column(
+            controls=[
+                ft.Container(
+                    content=ft.Row(
+                        controls=[
+                            self.path_text,
+                            select_button,
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    padding=10
+                ),
+                ft.Container(
+                    content=ft.Row(
+                        controls=[
+                            save_button,
+                            self.monitor_button,
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    padding=10
+                ),
+                ft.Container(
+                    content=self.status_text,
+                    alignment=ft.alignment.center,
+                    padding=10
+                ),
+            ],
+            spacing=0,
+        )
+        
+        self.page.add(content)
+        
+        # 更新窗口事件处理方式
+        self.page.window.prevent_close = True
+        
+        def handle_window_event(e):
+            if e.data == "close":
+                self.page.window.visible = False
+                e.prevent_default()
+        
+        self.page.window.on_event = handle_window_event
+    
+    def on_directory_selected(self, e: ft.FilePickerResultEvent):
+        if e.path:
+            self.path_text.value = e.path
+            self.monitor.save_directory = e.path
+            self.page.update()
+    
+    async def select_directory(self, e):
+        self.file_picker.get_directory_path()
+        self.page.update()
+    
+    async def toggle_monitoring(self, e):
         if self.monitor.monitoring:
             self.monitor.stop_monitoring()
-            self.monitor_button.config(text="开始监控")
-            self.status_label.config(text="状态: 已停止")
+            self.monitor_button.text = "开始监控"
+            self.monitor_button.icon = ft.icons.PLAY_CIRCLE
+            self.monitor_button.style.bgcolor = ft.colors.GREEN_400
+            self.status_text.value = "状态: 已停止"
+            self.status_text.color = ft.colors.GREY_700
         else:
-            if not self.path_entry.get():
-                messagebox.showerror("错误", "请先选择保存目录")
+            if not self.path_text.value:
+                self.page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text("请先选择保存目录"))
+                )
                 return
-            self.monitor.save_directory = self.path_entry.get()
+            self.monitor.save_directory = self.path_text.value
             self.monitor.start_monitoring()
-            self.monitor_button.config(text="停止监控")
-            self.status_label.config(text="状态: 监控中")
-
-    def save_clipboard(self):
-        clipboard_content = pyperclip.paste()
-        directory = self.path_entry.get()
-        
-        if not directory:
-            messagebox.showerror("错误", "请先选择保存目录")
+            self.monitor_button.text = "停止监控"
+            self.monitor_button.icon = ft.icons.STOP_CIRCLE
+            self.monitor_button.style.bgcolor = ft.colors.RED_400
+            self.status_text.value = "状态: 监控中"
+            self.status_text.color = ft.colors.GREEN_600
+        self.page.update()
+    
+    async def save_clipboard(self, e):
+        if not self.path_text.value:
+            self.page.show_snack_bar(
+                ft.SnackBar(content=ft.Text("请先选择保存目录"))
+            )
             return
-        
-        filename = os.path.join(directory, f"clipboard_{int(time.time())}.txt")
+            
+        clipboard_content = pyperclip.paste()
+        filename = os.path.join(self.path_text.value, f"clipboard_{int(time.time())}.txt")
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(clipboard_content)
-            messagebox.showinfo("成功", f"内容已保存到: {filename}")
+            self.page.show_snack_bar(
+                ft.SnackBar(
+                    content=ft.Text(f"已保存到: {filename}"),
+                    bgcolor=ft.colors.GREEN_400
+                )
+            )
         except Exception as e:
-            messagebox.showerror("错误", f"保存文件失败: {str(e)}")
+            self.page.show_snack_bar(
+                ft.SnackBar(
+                    content=ft.Text(f"保存失败: {str(e)}"),
+                    bgcolor=ft.colors.RED_400
+                )
+            )
+
+def main():
+    app = ClipboardApp()
+    ft.app(target=app.main, assets_dir="assets")
 
 if __name__ == "__main__":
-    app = App()
-    app.run()
+    main()
