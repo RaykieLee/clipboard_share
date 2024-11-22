@@ -13,19 +13,88 @@ class ClipboardMonitor:
         self.monitoring = False
         self.save_directory = ""
         self.cleanup_thread = None
+        self.my_saved_files = set()  # 记录由程序保存的文件
         
     def start_monitoring(self):
         self.monitoring = True
         self.previous_content = pyperclip.paste()
+        # 初始化已知文件列表
+        if self.save_directory:
+            pattern = os.path.join(self.save_directory, "*.txt")
+            self.known_files = set(glob.glob(pattern))
+        
         # 启动监控线程
         threading.Thread(target=self.monitor_clipboard, daemon=True).start()
         # 启动清理线程
         self.cleanup_thread = threading.Thread(target=self.cleanup_old_files, daemon=True)
         self.cleanup_thread.start()
+        # 启动反向监控线程
+        threading.Thread(target=self.monitor_directory, daemon=True).start()
         
     def stop_monitoring(self):
         self.monitoring = False
         
+    def monitor_directory(self):
+        while self.monitoring:
+            try:
+                if self.save_directory:
+                    # 获取所有 clipboard_ 开头的txt文件
+                    files = glob.glob(os.path.join(self.save_directory, "clipboard_*.txt"))
+                    
+                    if not files:
+                        time.sleep(0.5)
+                        continue
+                    
+                    current_time = time.time()
+                    
+                    # 检查每个文件
+                    for file_path in files:
+                        # 跳过由程序自己创建的文件
+                        if file_path in self.my_saved_files:
+                            continue
+                            
+                        try:
+                            # 检查文件创建时间
+                            file_creation_time = os.path.getctime(file_path)
+                            # 只处理3分钟内创建的文件
+                            if current_time - file_creation_time > 180:  # 180秒 = 3分钟
+                                continue
+                                
+                            # 读取文件内容
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                file_content = f.read()
+                            
+                            # 如果内容与当前剪切板不同，则更新剪切板
+                            current_clipboard = pyperclip.paste()
+                            if file_content and file_content != current_clipboard:
+                                pyperclip.copy(file_content)
+                                print(f"从新文件更新剪切板: {os.path.basename(file_path)}")
+                            
+                            # 将文件添加到已处理列表
+                            self.my_saved_files.add(file_path)
+                            
+                        except Exception as e:
+                            print(f"处理文件时出错: {str(e)}")
+                    
+            except Exception as e:
+                print(f"监控目录时出错: {str(e)}")
+            
+            time.sleep(0.5)
+    
+    def save_content(self, content):
+        if not content.strip():
+            return
+            
+        filename = os.path.join(self.save_directory, f"clipboard_{int(time.time())}.txt")
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"已保存到: {filename}")
+            # 记录这是程序创建的文件
+            self.my_saved_files.add(filename)
+        except Exception as e:
+            print(f"保存失败: {str(e)}")
+    
     def cleanup_old_files(self):
         while self.monitoring:
             try:
@@ -65,18 +134,6 @@ class ClipboardMonitor:
             except Exception as e:
                 print(f"监控剪切板时出错: {str(e)}")
             time.sleep(0.5)
-
-    def save_content(self, content):
-        if not content.strip():
-            return
-            
-        filename = os.path.join(self.save_directory, f"clipboard_{int(time.time())}.txt")
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"已保存到: {filename}")
-        except Exception as e:
-            print(f"保存失败: {str(e)}")
 
 class ClipboardApp:
     def __init__(self):
