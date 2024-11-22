@@ -1,1 +1,4 @@
-flet==0.22.*
+flet==0.24.*
+pyperclip==1.8.2
+pystray==0.19.*
+Pillow==10.0.*

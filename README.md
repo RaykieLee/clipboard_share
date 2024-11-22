@@ -1,9 +1,12 @@
-# A clipboard_share Flet app
+# 剪切板监控工具
 
-An example of a minimal Flet app.
+一个简单的剪切板监控工具，可以自动保存剪切板内容到指定目录。
 
-To run the app:
+## 功能特点
 
-```
-flet run [app_directory]
-```
+- 监控剪切板变化并自动保存
+- 支持系统托盘运行
+- 可选择保存目录
+- 支持手动保存当前剪切板内容
+
+## 安装依赖
