@@ -5,33 +5,76 @@ import time
 import threading
 from PIL import Image
 import sys
+import glob  # 添加用于文件匹配的模块
 
 class ClipboardMonitor:
     def __init__(self):
-        self.previous_content = pyperclip.paste()
+        self.previous_content = ""
         self.monitoring = False
         self.save_directory = ""
+        self.cleanup_thread = None
         
     def start_monitoring(self):
         self.monitoring = True
+        self.previous_content = pyperclip.paste()
+        # 启动监控线程
         threading.Thread(target=self.monitor_clipboard, daemon=True).start()
+        # 启动清理线程
+        self.cleanup_thread = threading.Thread(target=self.cleanup_old_files, daemon=True)
+        self.cleanup_thread.start()
         
     def stop_monitoring(self):
         self.monitoring = False
         
+    def cleanup_old_files(self):
+        while self.monitoring:
+            try:
+                if self.save_directory:
+                    # 获取当前时间戳
+                    current_time = time.time()
+                    # 获取所有clipboard开头的txt文件
+                    pattern = os.path.join(self.save_directory, "clipboard_*.txt")
+                    files = glob.glob(pattern)
+                    
+                    for file in files:
+                        try:
+                            # 从文件名中提取时间戳
+                            filename = os.path.basename(file)
+                            timestamp = int(filename.replace("clipboard_", "").replace(".txt", ""))
+                            
+                            # 如果文件超过10分钟，则删除
+                            if current_time - timestamp > 600:  # 600秒 = 10分钟
+                                os.remove(file)
+                                print(f"已清理旧文件: {filename}")
+                        except Exception as e:
+                            print(f"清理文件时出错: {str(e)}")
+                            
+            except Exception as e:
+                print(f"清理过程出错: {str(e)}")
+            
+            # 每10分钟检查一次
+            time.sleep(600)  # 修改为600秒（10分钟）
+    
     def monitor_clipboard(self):
         while self.monitoring:
-            current_content = pyperclip.paste()
-            if current_content != self.previous_content and self.save_directory:
-                self.save_content(current_content)
-                self.previous_content = current_content
+            try:
+                current_content = pyperclip.paste()
+                if current_content and current_content != self.previous_content:
+                    self.save_content(current_content)
+                    self.previous_content = current_content
+            except Exception as e:
+                print(f"监控剪切板时出错: {str(e)}")
             time.sleep(0.5)
 
     def save_content(self, content):
+        if not content.strip():
+            return
+            
         filename = os.path.join(self.save_directory, f"clipboard_{int(time.time())}.txt")
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(content)
+            print(f"已保存到: {filename}")
         except Exception as e:
             print(f"保存失败: {str(e)}")
 
@@ -45,11 +88,12 @@ class ClipboardApp:
         self.page = page
         self.page.title = "剪切板监控工具"
         
-        # 更新窗口属性的设置方式
-        self.page.window.width = 600
-        self.page.window.height = 200
+        # 更新窗口属性，设置更小的尺寸
+        self.page.window.width = 350  # 减小窗口宽度
+        self.page.window.height = 90  # 减小窗口高度
         self.page.window.resizable = False
         self.page.theme_mode = ft.ThemeMode.LIGHT
+        self.page.padding = 0  # 移除页面内边距
         
         # 设置图标
         icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
@@ -63,82 +107,55 @@ class ClipboardApp:
         self.page.overlay.append(self.file_picker)
         
         # 创建界面元素
-        self.path_text = ft.TextField(
-            label="保存目录",
-            read_only=True,
-            width=400,
-            border_color=ft.colors.BLUE_400,
-        )
-        
-        self.status_text = ft.Text(
-            "状态: 已停止",
-            color=ft.colors.GREY_700,
-            size=14
-        )
-        
-        select_button = ft.ElevatedButton(
-            "选择目录",
-            icon=ft.icons.FOLDER_OPEN,
-            on_click=self.select_directory,
+        self.select_button = ft.ElevatedButton(
+            content=ft.Row(
+                controls=[
+                    ft.Icon(ft.icons.FOLDER_OPEN),
+                    ft.Text("选择目录")
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
             style=ft.ButtonStyle(
                 color=ft.colors.WHITE,
                 bgcolor=ft.colors.BLUE_400,
-            )
+            ),
+            on_click=self.select_directory,
         )
         
         self.monitor_button = ft.ElevatedButton(
-            "开始监控",
-            icon=ft.icons.PLAY_CIRCLE,
+            content=ft.Row(
+                controls=[
+                    ft.Icon(ft.icons.PLAY_CIRCLE),
+                    ft.Text("开始监控")
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            style=ft.ButtonStyle(
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.GREY_400,  # 初始为灰色
+            ),
             on_click=self.toggle_monitoring,
-            style=ft.ButtonStyle(
-                color=ft.colors.WHITE,
-                bgcolor=ft.colors.GREEN_400,
-            )
+            disabled=True  # 初始状态禁用
         )
         
-        save_button = ft.ElevatedButton(
-            "保存当前",
-            icon=ft.icons.SAVE,
-            on_click=self.save_clipboard,
-            style=ft.ButtonStyle(
-                color=ft.colors.WHITE,
-                bgcolor=ft.colors.BLUE_400,
-            )
-        )
-        
-        # 布局
-        content = ft.Column(
+        # 简化布局，减少内边距
+        content = ft.Row(
             controls=[
-                ft.Container(
-                    content=ft.Row(
-                        controls=[
-                            self.path_text,
-                            select_button,
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    padding=10
-                ),
-                ft.Container(
-                    content=ft.Row(
-                        controls=[
-                            save_button,
-                            self.monitor_button,
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    padding=10
-                ),
-                ft.Container(
-                    content=self.status_text,
-                    alignment=ft.alignment.center,
-                    padding=10
-                ),
+                self.select_button,
+                ft.Container(width=10),  # 减小按钮间距
+                self.monitor_button,
             ],
+            alignment=ft.MainAxisAlignment.CENTER,
             spacing=0,
         )
         
-        self.page.add(content)
+        # 添加一个最小的容器来包裹按钮行
+        container = ft.Container(
+            content=content,
+            padding=5,  # 减小内边距
+        )
+        
+        self.page.add(container)
         
         # 更新窗口事件处理方式
         self.page.window.prevent_close = True
@@ -152,8 +169,14 @@ class ClipboardApp:
     
     def on_directory_selected(self, e: ft.FilePickerResultEvent):
         if e.path:
-            self.path_text.value = e.path
-            self.monitor.save_directory = e.path
+            path_display = os.path.basename(e.path)
+            # 更新选择按钮的文本和图标
+            self.select_button.content.controls[1].value = path_display
+            # 设置保存目录
+            self.monitor.save_directory = e.path  # 确保设置保存目录
+            # 启用监控按钮并设置为绿色
+            self.monitor_button.disabled = False
+            self.monitor_button.style.bgcolor = ft.colors.GREEN_400
             self.page.update()
     
     async def select_directory(self, e):
@@ -163,51 +186,18 @@ class ClipboardApp:
     async def toggle_monitoring(self, e):
         if self.monitor.monitoring:
             self.monitor.stop_monitoring()
-            self.monitor_button.text = "开始监控"
-            self.monitor_button.icon = ft.icons.PLAY_CIRCLE
+            self.monitor_button.content.controls[0].name = ft.icons.PLAY_CIRCLE
+            self.monitor_button.content.controls[1].value = "开始监控"
             self.monitor_button.style.bgcolor = ft.colors.GREEN_400
-            self.status_text.value = "状态: 已停止"
-            self.status_text.color = ft.colors.GREY_700
         else:
-            if not self.path_text.value:
-                self.page.show_snack_bar(
-                    ft.SnackBar(content=ft.Text("请先选择保存目录"))
-                )
+            if not self.monitor.save_directory:  # 添加目录检查
+                print("未设置保存目录")
                 return
-            self.monitor.save_directory = self.path_text.value
             self.monitor.start_monitoring()
-            self.monitor_button.text = "停止监控"
-            self.monitor_button.icon = ft.icons.STOP_CIRCLE
+            self.monitor_button.content.controls[0].name = ft.icons.STOP_CIRCLE
+            self.monitor_button.content.controls[1].value = "停止监控"
             self.monitor_button.style.bgcolor = ft.colors.RED_400
-            self.status_text.value = "状态: 监控中"
-            self.status_text.color = ft.colors.GREEN_600
         self.page.update()
-    
-    async def save_clipboard(self, e):
-        if not self.path_text.value:
-            self.page.show_snack_bar(
-                ft.SnackBar(content=ft.Text("请先选择保存目录"))
-            )
-            return
-            
-        clipboard_content = pyperclip.paste()
-        filename = os.path.join(self.path_text.value, f"clipboard_{int(time.time())}.txt")
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(clipboard_content)
-            self.page.show_snack_bar(
-                ft.SnackBar(
-                    content=ft.Text(f"已保存到: {filename}"),
-                    bgcolor=ft.colors.GREEN_400
-                )
-            )
-        except Exception as e:
-            self.page.show_snack_bar(
-                ft.SnackBar(
-                    content=ft.Text(f"保存失败: {str(e)}"),
-                    bgcolor=ft.colors.RED_400
-                )
-            )
 
 def main():
     app = ClipboardApp()
