@@ -6,14 +6,52 @@ import threading
 from PIL import Image
 import sys
 import glob  # 添加用于文件匹配的模块
+import winreg  # 添加注册表操作模块
 
 class ClipboardMonitor:
     def __init__(self):
         self.previous_content = ""
         self.monitoring = False
-        self.save_directory = ""
+        self.save_directory = self.load_directory_from_registry()  # 从注册表加载目录
         self.cleanup_thread = None
         self.my_saved_files = set()  # 记录由程序保存的文件
+        
+    def load_directory_from_registry(self):
+        try:
+            # 打开注册表键
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\ClipboardMonitor",
+                0,
+                winreg.KEY_READ
+            )
+            # 读取目录值
+            directory, _ = winreg.QueryValueEx(key, "SaveDirectory")
+            winreg.CloseKey(key)
+            return directory
+        except:
+            return ""
+            
+    def save_directory_to_registry(self, directory):
+        try:
+            # 创建或打开注册表键
+            key = winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\ClipboardMonitor"
+            )
+            # 保存目录值
+            winreg.SetValueEx(
+                key,
+                "SaveDirectory",
+                0,
+                winreg.REG_SZ,
+                directory
+            )
+            winreg.CloseKey(key)
+            return True
+        except Exception as e:
+            print(f"保存目录到注册表失败: {str(e)}")
+            return False
         
     def start_monitoring(self):
         self.monitoring = True
@@ -146,11 +184,11 @@ class ClipboardApp:
         self.page.title = "剪切板监控工具"
         
         # 更新窗口属性，设置更小的尺寸
-        self.page.window.width = 350  # 减小窗口宽度
-        self.page.window.height = 90  # 减小窗口高度
+        self.page.window.width = 350
+        self.page.window.height = 90
         self.page.window.resizable = False
         self.page.theme_mode = ft.ThemeMode.LIGHT
-        self.page.padding = 0  # 移除页面内边距
+        self.page.padding = 0
         
         # 设置图标
         icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
@@ -168,7 +206,8 @@ class ClipboardApp:
             content=ft.Row(
                 controls=[
                     ft.Icon(ft.icons.FOLDER_OPEN),
-                    ft.Text("选择目录")
+                    # 如果有保存的目录，显示目录名，否则显示"选择目录"
+                    ft.Text(os.path.basename(self.monitor.save_directory) if self.monitor.save_directory else "选择目录")
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
             ),
@@ -189,10 +228,12 @@ class ClipboardApp:
             ),
             style=ft.ButtonStyle(
                 color=ft.colors.WHITE,
-                bgcolor=ft.colors.GREY_400,  # 初始为灰色
+                # 如果有保存的目录，设置为绿色，否则设置为灰色
+                bgcolor=ft.colors.GREEN_400 if self.monitor.save_directory else ft.colors.GREY_400,
             ),
             on_click=self.toggle_monitoring,
-            disabled=True  # 初始状态禁用
+            # 如果有保存的目录，启用按钮，否则禁用
+            disabled=not bool(self.monitor.save_directory)
         )
         
         # 简化布局，减少内边距
@@ -215,22 +256,30 @@ class ClipboardApp:
         self.page.add(container)
         
         # 更新窗口事件处理方式
-        self.page.window.prevent_close = True
-        
         def handle_window_event(e):
             if e.data == "close":
-                self.page.window.visible = False
-                e.prevent_default()
+                self.monitor.stop_monitoring()  # 停止所有监控
+                self.page.window.destroy()  # 关闭窗口
+                sys.exit(0)  # 退出程序
         
         self.page.window.on_event = handle_window_event
+        
+        # 如果有保存的目录，自动开始监控
+        if self.monitor.save_directory:
+            self.monitor.start_monitoring()
+            self.monitor_button.content.controls[0].name = ft.icons.STOP_CIRCLE
+            self.monitor_button.content.controls[1].value = "停止监控"
+            self.monitor_button.style.bgcolor = ft.colors.RED_400
+            self.page.update()
     
     def on_directory_selected(self, e: ft.FilePickerResultEvent):
         if e.path:
             path_display = os.path.basename(e.path)
             # 更新选择按钮的文本和图标
             self.select_button.content.controls[1].value = path_display
-            # 设置保存目录
-            self.monitor.save_directory = e.path  # 确保设置保存目录
+            # 设置保存目录并保存到注册表
+            self.monitor.save_directory = e.path
+            self.monitor.save_directory_to_registry(e.path)
             # 启用监控按钮并设置为绿色
             self.monitor_button.disabled = False
             self.monitor_button.style.bgcolor = ft.colors.GREEN_400
