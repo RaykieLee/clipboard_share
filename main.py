@@ -184,7 +184,7 @@ class ClipboardApp:
         self.page.title = "剪切板监控工具"
         
         # 更新窗口属性，设置更小的尺寸
-        self.page.window.width = 350
+        self.page.window.width = 370
         self.page.window.height = 90
         self.page.window.resizable = False
         self.page.theme_mode = ft.ThemeMode.LIGHT
